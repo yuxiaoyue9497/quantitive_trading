@@ -1,0 +1,12 @@
+[project]
+name = "quantitive-trading"
+version = "0.1.0"
+description = "A 股量化策略回测框架，支持双均线策略、手续费建模、向量化回测与绩效分析"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "akshare>=1.15",
+    "pandas",
+    "numpy",
+    "matplotlib",
+]
