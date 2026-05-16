@@ -5,7 +5,7 @@ description = "A 股量化策略回测框架，支持双均线策略、手续费
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "akshare>=1.15",
+    "tushare>=1.2.85",
     "pandas",
     "numpy",
     "matplotlib",
