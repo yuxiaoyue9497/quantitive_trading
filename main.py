@@ -1,40 +1,35 @@
-import tushare as ts
-from tushare import pro_bar
+import baostock as bs
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-
-import os
-
-# Tushare API Token（建议通过环境变量 TUSHARE_TOKEN 设置）
-TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '')
+from datetime import datetime
 
 # 解决 matplotlib 中文显示问题
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS'] # Mac环境，Windows可替换为 'SimHei'
 plt.rcParams['axes.unicode_minus'] = False
 
-if TUSHARE_TOKEN:
-    ts.set_token(TUSHARE_TOKEN)
-    pro = ts.pro_api()
-else:
-    print("警告: 未设置 TUSHARE_TOKEN，请将 token 放入环境变量 TUSHARE_TOKEN")
-    print("请前往 https://tushare.pro/register 注册并获取 token")
-    import sys; sys.exit(1)
+# 登录 Baostock
+lg = bs.login()
 
-# ==============================================================================
-# 1. 数据获取模块 (Data Feed)
-# ==============================================================================
-print("正在从 Tushare 获取宁德时代历史 K 线数据...")
-# pro_bar 获取前复权日K数据
-# 积分200分以上才有复权类型
-df_raw = pro_bar(ts_code='300750.SZ', start_date='20230101', end_date='20251231')
-# df_raw = pro_bar(ts_code='300750.SZ', adj='qfq', start_date='20230101', end_date='20251231')
 
-# 重命名列名以符合通用量化习惯
-df = df_raw[['trade_date', 'open', 'high', 'low', 'close', 'vol']].rename(
-    columns={'trade_date': 'date', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'vol': 'volume'}
-)
+# === 数据获取模块 (Data Feed) ===
+print("正在从 Baostock 获取宁德时代历史 K 线数据...")
+# baostock 股票代码格式: sz.300750 (深市), sh.600519 (沪市)
+# adjustflag: 1=后复权, 2=前复权
+fields = "date,code,open,high,low,close,preclose,volume,amount,adjustflag,turn,tradestatus,pctChg"
+rs = bs.query_history_k_data_plus(code="sz.300750", 
+    fields=fields, 
+    start_date="2023-01-01", 
+    end_date="2025-12-31", 
+    frequency="d", 
+    adjustflag="2")
+df_raw = rs.get_data()
+bs.logout()
 
+# 保留需要的列并转换日期格式
+df = df_raw[['date', 'open', 'high', 'low', 'close', 'volume']].copy()
+numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
 df['date'] = pd.to_datetime(df['date'])
 df.set_index('date', inplace=True)
 df.sort_index(inplace=True)
