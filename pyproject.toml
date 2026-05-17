@@ -10,3 +10,7 @@ dependencies = [
     "numpy",
     "matplotlib",
 ]
+[project.optional-dependencies]
+akshare = ["akshare>=1.11"]
+tushare = ["tushare>=1.2.89"]
+extra = ["akshare>=1.11", "tushare>=1.2.89"]

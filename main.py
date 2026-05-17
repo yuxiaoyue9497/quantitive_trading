@@ -1,4 +1,4 @@
-"""量化回测框架入口 — 双均线策略 + Baostock 数据源"""
+"""量化回测框架入口 — 双均线策略"""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import sys
 
 from backtest.constants import BacktestConsts
 from backtest.data_feed import fetch_stock_data
+from backtest.datafeed.resolver import resolve_data_source
 from backtest.engine import calc_performance, run_backtest
 from backtest.plotter import plot_backtest
 from backtest.strategy import dual_ma_strategy
@@ -35,32 +36,42 @@ def print_report(metrics: dict) -> None:
 
 
 def main() -> None:
-    # 配置
+    # ── 配置 ──
     SYMBOL = "sz.300750"       # 宁德时代（深市）
     START_DATE = "2023-01-01"
     END_DATE = "2025-12-31"
-    REPORT_TITLE = f"{SYMBOL} 双均线策略回测净值曲线 ({START_DATE[:4]}-{END_DATE[:4]})"
+    DATA_SOURCE = "baostock"   # ─ 数据源配置 ─ 可选: baostock / akshare / tushare
+    TUSHARE_TOKEN = ""         # 仅当 DATA_SOURCE="tushare" 时需要
+    ADJUST = "2"               # 复权: 1=不复权 / 2=前复权 / 3=后复权
 
-    # 1. 数据获取
-    print("正在从 Baostock 获取历史 K 线数据...")
-    df = fetch_stock_data(SYMBOL, START_DATE, END_DATE)
+    # ── 1. 获取数据 ──
+    print(f"正在从 {DATA_SOURCE} 获取历史 K 线数据...")
+    df = fetch_stock_data(
+        code=SYMBOL,
+        start=START_DATE,
+        end=END_DATE,
+        source=DATA_SOURCE,
+        adjust=ADJUST,
+        token=TUSHARE_TOKEN if DATA_SOURCE == "tushare" else None,
+    )
     print(f"  获取到 {len(df)} 条日 K 数据")
 
-    # 2. 策略计算
+    # ── 2. 策略信号 ──
     print("计算双均线策略信号...")
-    df = dual_ma_strategy(df)
+    df = dual_ma_strategy(df, short=5, medium=20)
 
-    # 3. 回测
+    # ── 3. 回测 ──
     print("运行回测引擎...")
     df = run_backtest(df)
 
-    # 4. 绩效
+    # ── 4. 绩效 ──
     print("计算量化绩效指标...")
     metrics = calc_performance(df)
     print_report(metrics)
 
-    # 5. 绘图
-    plot_backtest(df, REPORT_TITLE)
+    # ── 5. 绘图 ──
+    report_title = f"{SYMBOL} {DATA_SOURCE} | 双均线策略 ({START_DATE[:4]}-{END_DATE[:4]})"
+    plot_backtest(df, report_title)
 
 
 if __name__ == "__main__":
@@ -68,6 +79,11 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n用户中断。")
+        sys.exit(1)
+    except ImportError as e:
+        # 优雅处理未安装的数据源依赖
+        print(f"\n导入错误: {e}")
+        print("请安装对应数据源: uv add akshare 或 uv add tushare")
         sys.exit(1)
     except Exception as e:
         print(f"\n错误: {e}")

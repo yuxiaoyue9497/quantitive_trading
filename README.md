@@ -4,7 +4,7 @@ A 股量化策略回测框架，以经典的**双均线策略**为示例，展�
 
 ## 功能特性
 
-- **数据获取**：通过 [Baostock](http://baostock.com) 自动拉取 A 股历史日 K 线数据（无需注册 Token），同时设计为可插拔，后续可切换至 Tushare / AkShare 等数据源
+|- **多数据源**：支持 Baostock（默认）、AkShare、Tushare 三种数据源，通过配置项 `DATA_SOURCE` 一键切换，适配器模式可无限扩展
 - **策略框架**：以双均线策略为示例，展示可复用的策略信号接口
 - **手续费建模**：买入万三佣金 + 万零六过户费（3.6 BPS），卖出万三佣金 + 万零六过户费 + 千一印花税（13.6 BPS）
 - **向量化回测**：高性能 pandas/numpy 向量化计算，避免未来函数
@@ -22,9 +22,29 @@ uv sync
 
 ## 运行回测
 
+### 默认运行
+
 ```bash
 uv run main.py
 ```
+
+默认使用 **Baostock** 数据源。
+
+### 切换数据源
+
+在 `main.py` 中修改配置项即可：
+
+```python
+# main.py
+DATA_SOURCE = "akshare"    # 可选: baostock | akshare | tushare
+TUSHARE_TOKEN = "your-token"  # 使用 tushare 时需要
+```
+
+- **Baostock**（默认）：无需 Token，开箱即用
+- **AkShare**：`uv sync --extra akshare` 安装
+- **Tushare**：需注册获取 Token，`uv sync --extra tushare` 安装
+
+详细对比见 [数据源选型记录](docs/data_source_selection.md)。
 
 ## 模块化架构
 
@@ -33,10 +53,17 @@ quantitive-trading/
 ├── backtest/            # 核心回测模块
 │   ├── __init__.py
 │   ├── constants.py     # 费率、交易日、数据源配置等常量
-│   ├── data_feed.py     # 数据获取（Baostock）
 │   ├── strategy.py      # 策略信号计算接口
 │   ├── engine.py        # 回测引擎：持仓/收益/成本/绩效指标
-│   └── plotter.py       # 净值曲线可视化
+│   ├── plotter.py       # 净值曲线可视化
+│   └── datafeed/        # 多数据源适配器（核心）
+│       ├── __init__.py
+│       ├── base.py      # AbstractDataSource 抽象基类
+│       ├── baostock.py  # Baostock 适配器（默认）
+│       ├── akshare.py   # AkShare 适配器
+│       ├── tushare.py   # Tushare Pro 适配器
+│       └── resolver.py  # 数据源解析器（factory + registry）
+├── backtest/data_feed.py      # 统一数据获取入口
 ├── docs/
 │   └── data_source_selection.md   # 数据源选型记录
 ├── main.py              # 入口：编排数据→策略→回测→报告→绘图
@@ -46,14 +73,20 @@ quantitive-trading/
 
 各模块职责：
 
-| 模块 | 职责 |
-|------|------|
-| `data_feed.py` | `fetch_stock_data()` — 拉取日 K 并清洗为标准 DataFrame |
-| `strategy.py` | `dual_ma_strategy()` — MA5/MA20 交叉信号 |
-| `engine.py` | `run_backtest()` 建持仓/收益，`calc_performance()` 计算夏普/回撤等 |
-| `plotter.py` | `plot_backtest()` 净值图 |
+|| 模块 | 职责 |
+||------|------||
+|| `datafeed/base.py` | `AbstractDataSource` 抽象基类，定义 fetch() 接口 |
+|| `datafeed/baostock.py` | Baostock 数据源适配器（默认） |
+|| `datafeed/akshare.py` | AkShare 数据源适配器 |
+|| `datafeed/tushare.py` | Tushare Pro 数据源适配器 |
+|| `datafeed/resolver.py` | 数据源解析器（工厂模式 + 注册表），支持通过配置切换 |
+|| `data_feed.py` | `fetch_stock_data(source=...)` — 统一数据获取入口 |
+|| `strategy.py` | `dual_ma_strategy()` — MA5/MA20 交叉信号 |
+|| `engine.py` | `run_backtest()` 建持仓/收益，`calc_performance()` 计算夏普/回撤等 |
+|| `plotter.py` | `plot_backtest()` 净值图 |
+|| `constants.py` | 费率、交易日等常量统一收敛 |
 
-设计原则：各模块通过 DataFrame 接口解耦，策略和回测引擎完全独立于数据源，可插拔替换。
+设计原则：各模块通过 DataFrame 接口解耦，策略和回测引擎完全独立于数据源，可插拔替换。适配器模式支持通过 `DATA_SOURCE` 配置项一键切换数据源，用户也可注册自定义数据源（通过 `register_data_source()`）。
 
 ## 策略说明
 
