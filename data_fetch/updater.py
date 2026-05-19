@@ -63,8 +63,7 @@ class DataUpdater:
             return 0
 
         required_cols = [
-            "code", "code_name", "industry",
-            "listedDate", "delistedDate", "exchange",
+            "code", "code_name", "ipoDate", "outDate", "exchange",
         ]
         available = [c for c in required_cols if c in df.columns]
         for c in required_cols:
@@ -74,9 +73,8 @@ class DataUpdater:
         df_out = df[available].rename(columns={
             "code": "code",
             "code_name": "name",
-            "industry": "industry",
-            "listedDate": "listed_date",
-            "delistedDate": "delisted_date",
+            "ipoDate": "listed_date",
+            "outDate": "delisted_date",
             "exchange": "exchange",
         })
 
