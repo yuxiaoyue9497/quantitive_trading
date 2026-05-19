@@ -56,7 +56,8 @@ def main():
     health_parser.add_argument("--db", default=DB_PATH, help="DB path")
 
     # init subcommand
-    subparsers.add_parser("init", help="Initialize database")
+    init_parser = subparsers.add_parser("init", help="Initialize database")
+    init_parser.add_argument("--db", default=DB_PATH, help="DB path")
 
     args = parser.parse_args()
 

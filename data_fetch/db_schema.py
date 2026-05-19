@@ -188,14 +188,22 @@ TABLE_PRIMARY_KEYS: dict[str, list[str]] = {
 def create_all_stock_tables(conn: sqlite3.Connection) -> None:
     """在 conn 上创建 stock_data.db 的全部表."""
     for name, func in STOCK_TABLE_FUNCS.items():
-        conn.execute(func())
+        sql = func()
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
     conn.commit()
 
 
 def create_all_factor_tables(conn: sqlite3.Connection) -> None:
     """在 conn 上创建 factor_raw.db 的全部表."""
     for name, func in FACTOR_TABLE_FUNCS.items():
-        conn.execute(func())
+        sql = func()
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
     conn.commit()
 
 

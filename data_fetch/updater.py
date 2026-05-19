@@ -24,7 +24,7 @@ class UpdateConfig:
     """Update configuration."""
     source: str = "baostock"  # 'baostock' | 'akshare'
     pool: Literal["all_a", "hs300", "zz500"] = "all_a"
-    start_date: str = "1990-12-19"  # First A-share listing date
+    start_date: str = "2026-05-01"  # First A-share listing date
     end_date: str | None = None
     update_constituents: bool = True
     index_keys: list[str] = field(default_factory=lambda: list(INDEX_MAP.keys()))
@@ -63,8 +63,8 @@ class DataUpdater:
             return 0
 
         required_cols = [
-            "s_info_code", "s_info_name", "s_industry",
-            "s_listedDate", "s_delistedDate", "s_exchange",
+            "code", "code_name", "industry",
+            "listedDate", "delistedDate", "exchange",
         ]
         available = [c for c in required_cols if c in df.columns]
         for c in required_cols:
@@ -72,13 +72,18 @@ class DataUpdater:
                 df[c] = None
 
         df_out = df[available].rename(columns={
-            "s_info_code": "code",
-            "s_info_name": "name",
-            "s_industry": "industry",
-            "s_listedDate": "listed_date",
-            "s_delistedDate": "delisted_date",
-            "s_exchange": "exchange",
+            "code": "code",
+            "code_name": "name",
+            "industry": "industry",
+            "listedDate": "listed_date",
+            "delistedDate": "delisted_date",
+            "exchange": "exchange",
         })
+
+        # Ensure all expected columns exist even if source fields are missing
+        for col in ["code", "name", "industry", "listed_date", "delisted_date", "exchange", "board", "updated_at"]:
+            if col not in df_out.columns:
+                df_out[col] = None
 
         # Clean exchange: add board info
         df_out["exchange"] = df_out["exchange"].replace({
