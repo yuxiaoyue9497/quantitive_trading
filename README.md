@@ -5,6 +5,7 @@ A 股量化策略回测框架，支持多数据源接入、多策略切换、手
 ## 功能特性
 
 - **多数据源**：支持 Baostock（默认）、AkShare、Tushare 三种数据源，通过配置项 `DATA_SOURCE` 一键切换
+- **数据缓存**：`data_fetch` 模块提供 SQLite 本地缓存，支持全市场批量拉取 + 每日增量更新，回测无需反复调 API
 - **多策略框架**：类式策略设计，继承 `BaseStrategy` 即可扩展新策略。内置双均线、布林带、MACD、SuperTrend 四种策略
 - **手续费建模**：买入万三佣金 + 万零六过户费（3.6 BPS），卖出万三佣金 + 万零六过户费 + 千一印花税（13.6 BPS）
 - **向量化回测**：高性能 pandas/numpy 向量化计算，避免未来函数
@@ -23,8 +24,43 @@ uv sync
 按需启用额外数据源：
 
 ```bash
-uv sync --extra akshare    # AkShare 数据源
-uv sync --extra tushare    # Tushare 数据源
+uv sync --extra akshare    # AkShare
+uv sync --extra tushare    # Tushare
+```
+
+## 数据同步
+
+`data_fetch` 包提供全市场数据缓存工具：
+
+```bash
+# 1. 初始化数据库 + 拉取全市场股票基础信息
+uv run python -m data_fetch.cli init
+
+# 2. 全量拉取所有股票的日线和财务数据（首次同步，预计较久）
+uv run python -m data_fetch.cli update --full
+
+# 3. 日常增量更新（仅拉取当日数据）
+uv run python -m data_fetch.cli update --incremental
+
+# 查看数据库统计
+uv run python -m data_fetch.cli info
+```
+
+SQLite 数据库位于 `data/sqlite/stock_data.db`，包含以下表：
+
+| 表名 | 说明 | 行数 |
+|------|------|------|
+| `stock_info` | 沪深 A 股基本资料（代码、名称、行业、上市日期等） | ~9,000 |
+| `stock_industry` | 申万三级行业分类 | ~5,000 |
+| `daily_kline` | 日 K 线（不复权） | 按需填充 |
+| `financial_qtr` | 季报财务数据 | 按需填充 |
+
+回测框架可配置使用 SQLite 缓存数据源（减少 API 调用）：
+
+```python
+from backtest.datafeed import SQLiteCacheFeed
+
+data = SQLiteCacheFeed.fetch_stock_data(stock_code, start_date, end_date)
 ```
 
 ## 运行回测
@@ -39,76 +75,29 @@ uv run main.py
 
 ### 切换策略与数据源
 
-在 `main.py` 中修改配置项：
+修改 `main.py` 中的配置：
 
 ```python
 # main.py
-DATA_SOURCE = "akshare"    # 可选: baostock | akshare | tushare
-STRATEGY_NAME = "macd"     # 可选: dual_ma | bollinger | macd | supertrend
+DATA_SOURCE = "akshare"       # baostock | akshare | tushare
+STRATEGY_NAME = "macd"        # dual_ma | bollinger | macd | supertrend
 TUSHARE_TOKEN = "your-token"  # 使用 tushare 时需要
 ```
-
-- **Baostock**（默认）：无需 Token，开箱即用
-- **AkShare**：`uv sync --extra akshare` 安装
-- **Tushare**：需注册获取 Token，`uv sync --extra tushare` 安装
 
 ### 自定义策略
 
 ```python
 from backtest.strategy import DualMaStrategy, BollingerStrategy, MacdStrategy, SuperTrendStrategy
 
-# 双均线
 strategy = DualMaStrategy(short=5, medium=20)
+# strategy = BollingerStrategy(window=20, std_dev=2.0)
+# strategy = MacdStrategy(fast_period=12, slow_period=26, signal_period=9)
+# strategy = SuperTrendStrategy(atr_period=10, atr_mult=3.0)
 
-# 布林带
-strategy = BollingerStrategy(window=20, std_dev=2.0)
-
-# MACD
-strategy = MacdStrategy(fast_period=12, slow_period=26, signal_period=9)
-
-# SuperTrend
-strategy = SuperTrendStrategy(atr_period=10, atr_mult=3.0)
-
-# 执行
 df = strategy.compute(df)  # df 必须包含 close 列，返回中添加 signal 列
 ```
 
-## 架构设计
-
-```
-quantitive-trading/
-├── backtest/                    # 核心回测模块
-│   ├── __init__.py
-│   ├── constants.py             # 费率、交易日、数据源配置等常量
-│   ├── engine.py                # 回测引擎：持仓/收益/成本/绩效指标
-│   ├── plotter.py               # 净值曲线可视化
-│   ├── data_feed.py             # 统一数据获取入口
-│   ├── strategy/                # 策略模块（每个策略独立文件）
-│   │   ├── __init__.py          # 统一导出所有策略
-│   │   ├── base.py              # BaseStrategy 抽象基类 + StrategyConfig
-│   │   ├── dual_ma.py           # 双均线策略
-│   │   ├── bollinger.py         # 布林带策略
-│   │   ├── macd.py              # MACD 策略
-│   │   └── supertrend.py        # SuperTrend 策略
-│   ├── datafeed/                # 多数据源适配器
-│   │   ├── __init__.py
-│   │   ├── base.py              # AbstractDataSource 抽象基类
-│   │   ├── baostock.py          # Baostock 适配器（默认）
-│   │   ├── akshare.py           # AkShare 适配器
-│   │   ├── tushare.py           # Tushare Pro 适配器
-│   │   └── resolver.py          # 数据源解析器（factory + registry）
-│   └── indicator/               # 技术指标（扩展）
-│       └── __init__.py
-├── docs/
-│   └── data_source_selection.md  # 数据源选型记录
-├── main.py                      # 入口：编排数据 → 策略 → 回测 → 报告 → 绘图
-├── pyproject.toml               # 项目配置与依赖
-└── uv.lock                      # uv 依赖锁文件
-```
-
 ### 新建策略
-
-继承 `BaseStrategy` 实现 `compute()` 方法：
 
 ```python
 from backtest.strategy import BaseStrategy
@@ -116,82 +105,99 @@ import pandas as pd
 
 class MyStrategy(BaseStrategy):
     name = "my_strategy"
-    
+
     def compute(self, df: pd.DataFrame) -> pd.DataFrame:
-        # 在 df 中添加 signal 列，取值 [0, 1]
-        df["signal"] = ...
+        df["signal"] = ...  # 取值 [0, 1]
         return df
 ```
 
 ### 新建数据源
 
-继承 `AbstractDataSource` 实现 `fetch()` 方法：
-
 ```python
 from backtest.datafeed import AbstractDataSource, register_data_source
-import pandas as pd
 
 class MyDataSource(AbstractDataSource):
     def fetch(self, code: str, start: str, end: str, adjust: str | None) -> pd.DataFrame:
-        # 返回列名 [open, high, low, close, volume] 的 DataFrame
-        ...
+        ...  # 返回 [open, high, low, close, volume]
 
 register_data_source("my", MyDataSource)
 ```
 
-各模块职责：
+## 架构设计
 
-| 模块 | 职责 |
-|------|------|
-| `datafeed/base.py` | `AbstractDataSource` 抽象基类，定义 fetch() 接口 |
-| `datafeed/baostock.py` | Baostock 数据源适配器（默认） |
-| `datafeed/akshare.py` | AkShare 数据源适配器 |
-| `datafeed/tushare.py` | Tushare Pro 数据源适配器 |
-| `datafeed/resolver.py` | 数据源解析器（工厂模式 + 注册表），支持通过配置切换 |
-| `data_feed.py` | `fetch_stock_data(source=...)` — 统一数据获取入口 |
-| `strategy/base.py` | `BaseStrategy` 策略基类，子类实现 compute() |
-| `strategy/*.py` | 独立策略实现文件 |
-| `engine.py` | `run_backtest()` 建持仓/收益，`calc_performance()` 计算夏普/回撤等 |
-| `plotter.py` | `plot_backtest()` 净值图 |
-| `constants.py` | 费率、交易日等常量统一收敛 |
-
-设计原则：各模块通过 DataFrame 接口解耦，策略和回测引擎完全独立于数据源，可插拔替换。
+```
+quantitive-trading/
+├── backtest/              # 核心回测模块
+│   ├── engine.py          # 回测引擎
+│   ├── plotter.py         # 净值曲线可视化
+│   ├── data_feed.py       # 统一数据获取入口
+│   ├── constants.py       # 费率、交易日等常量
+│   ├── strategy/          # 策略模块
+│   │   ├── base.py        # BaseStrategy 基类
+│   │   ├── dual_ma.py     # 双均线
+│   │   ├── bollinger.py   # 布林带
+│   │   ├── macd.py        # MACD
+│   │   └── supertrend.py  # SuperTrend
+│   └── datafeed/          # 数据源适配器
+│       ├── baostock.py    # Baostock
+│       ├── akshare.py     # AkShare
+│       ├── tushare.py     # Tushare
+│       └── resolver.py    # 数据源解析器
+├── data_fetch/            # 数据获取与缓存模块
+│   ├── cli.py             # CLI 入口
+│   ├── db.py              # SQLite 数据库操作
+│   ├── fetch_stock_info.py
+│   ├── fetch_industry.py
+│   ├── fetch_daily_kline.py
+│   ├── fetch_financial_qtr.py
+│   └── fetch_utils.py
+├── docs/
+├── main.py                # 入口
+├── pyproject.toml
+└── uv.lock
+```
 
 ## 内置策略说明
 
-### 双均线策略 (dual_ma)
+### 双均线 (dual_ma)
+- 买入：短期均线上穿长期均线
+- 卖出：短期均线下穿长期均线
+- 参数：short, medium, ma_type(sma/ema)
 
-- **买入信号**：短期均线穿越长期均线上方
-- **卖出信号**：短期均线穿越长期均线下方
-- **参数**：`short`（短周期）、`medium`（长周期）、`ma_type`（sma/ema）
-- **可选**：固定止损、追踪止损、仓位管理、成交量过滤
+### 布林带 (bollinger)
+- 买入：价格下穿下轨
+- 卖出：价格上穿上轨
+- 参数：window, std_dev
 
-### 布林带策略 (bollinger)
+### MACD (macd)
+- 买入：DIF 金叉 DEA
+- 卖出：DIF 死叉 DEA
+- 参数：fast_period(12), slow_period(26), signal_period(9)
 
-- **买入信号**：价格下穿下轨
-- **卖出信号**：价格上穿上轨
-- **参数**：`window`（均线周期）、`std_dev`（标准差倍数）
-
-### MACD 策略 (macd)
-
-- **买入信号**：DIF 金叉 DEA
-- **卖出信号**：DIF 死叉 DEA
-- **参数**：`fast_period`（12）、`slow_period`（26）、`signal_period`（9）
-
-### SuperTrend 策略 (supertrend)
-
-- **买入信号**：价格上穿 SuperTrend 通道
-- **卖出信号**：价格下穿 SuperTrend 通道
-- **参数**：`atr_period`（ATR 周期）、`atr_mult`（ATR 乘数）
+### SuperTrend (supertrend)
+- 买入：价格上穿 SuperTrend 通道
+- 卖出：价格下穿 SuperTrend 通道
+- 参数：atr_period, atr_mult
 
 ## 手续费模型
 
-| 费用类型 | 买入 | 卖出 | 说明 |
-|------|------|------|------|
-| 佣金 | 万三 | 万三 | A 股双向收取 |
-| 印花税 | — | 千一 | 仅卖出收取 |
-| 过户费 | 万零六 | 万零六 | A 股双向收取 |
-| **合计** | **3.6 BPS** | **13.6 BPS** | 基于仓位价值计算 |
+| 费用类型 | 买入 | 卖出 |
+|------|------|------|
+| 佣金 | 万三 | 万三 |
+| 印花税 | -- | 千一 |
+| 过户费 | 万零六 | 万零六 |
+| **合计** | **3.6 BPS** | **13.6 BPS** |
+
+## 绩效指标
+
+| 指标 | 公式 |
+|------|------|
+| 总收益率 | $(W_e - W_0) / W_0$ |
+| 超额收益 (Alpha) | 总收益率 $-$ 基准收益率 |
+| 年化收益率 | $(W_e / W_0)^{252/T} - 1$ |
+| 年化波动率 | $\sigma_{daily} \times \sqrt{252}$ |
+| 最大回撤 | $\min \frac{P_t - \max P_s}{\max P_s}$ |
+| 夏普比率 | $(R_{ann} - 0.03) / \sigma_{ann}$ |
 
 ## 回测输出
 
@@ -204,39 +210,36 @@ register_data_source("my", MyDataSource)
 策略总收益率 (Total Return):        XX.XX%
 基准总收益率 (Benchmark Return):    XX.XX%
 超额收益 (Alpha):                   XX.XX%
--------------------------------------------------------
+------
 年化收益率 (Annualized Return):     XX.XX%
 年化波动率 (Annualized Volatility): XX.XX%
 最大回撤 (Max Drawdown):            XX.XX%
 夏普比率 (Sharpe Ratio):            X.XX
--------------------------------------------------------
+------
 交易次数 (买入/卖出):               N / N
 总手续费成本 (Trading Cost):          X.XXXXXX (XX.XX%)
-  ├─ 买入手续费:                     X.XXXXXX
-  └─ 卖出手续费:                     X.XXXXXX
+  +-- 买入手续费:                     X.XXXXXX
+  +-- 卖出手续费:                     X.XXXXXX
 =======================================================
 ```
 
 ### 可视化
 
-程序输出策略净值曲线 vs 基准净值对比图：
-
-- **红实线**：策略净值（扣除手续费后）
+程序输出策略净值 vs 基准净值对比图：
+- **红实线**：策略净值（扣手续费后）
 - **蓝虚线**：标的基准净值
 
 ## 数据源对比
 
-| 数据源 | 费用 | Token | 数据质量 | 推荐场景 |
-|------|------|------|------|------|
-| Baostock | 完全免费 | 不需要 | 良好 | 个人回测 / 教学 |
-| Tushare Pro | 免费(基础) + 付费(进阶) | 需要（积分制） | 极好 | 机构级 / 深度研究 |
-| AkShare | 免费 | 不需要 | 一般（接口波动） | 快速探索 / 通用 |
-
-详细记录见 [docs/data_source_selection.md](docs/data_source_selection.md)。
+| 数据源 | 费用 | Token | 数据质量 | 场景 |
+|------|------|------|------|-- ----|
+| Baostock | 免费 | 不需要 | 良好 | 个人回测 / 教学 |
+| Tushare Pro | 免费+付费 | 需要 | 极好 | 机构级研究 |
+| AkShare | 免费 | 不需要 | 一般 | 快速探索 |
 
 ## 注意事项
 
-- 当前为简化版回测，未考虑**滑点**、**涨跌停限制**、**停牌**、**最低佣金 5 元**等因素
-- 策略参数为示例值，实际使用需要**参数扫描**和**样本外验证**
-- 手续费按固定费率计算，未随券商差异化调整
+- 未考虑**滑点**、**涨跌停**、**停牌**、**最低佣金 5 元**
+- 手续费按固定费率计算，未随券商差异化
+- 实际使用需要**参数扫描**和**样本外验证**
 - 回测结果仅供参考，不构成投资建议
